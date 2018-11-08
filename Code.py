@@ -22,11 +22,22 @@ class SpectralClass:
 #----------StarObject----------#
 
 class Star:
-    def __init__(self,FileName,StarName="",SpectralType=None,SpectralNumber=None,LumType=None):
+    def __init__(self,FileName=None,StarName="",SpectralType=None,SpectralNumber=None,
+    LumType=None,WaveLength=[],Flux=[]):
+    
         self.StarName = StarName
         self.SpectralType = SpectralType
         self.LumType = LumType
-        self.WaveLength, self.Flux = ReadFile(FileName) #Gets wavelength,flux from file
+        
+        if(len(WaveLength) != 0 and len(Flux) != 0):
+            self.WaveLength = WaveLength
+            self.Flux = Flux
+        else:
+            if(FileName != None):
+                self.WaveLength, self.Flux = ReadFile(FileName) 
+                #Gets wavelength,flux from file
+        
+        
         self.GetColors() #Gets the colors of the stars
         
         
@@ -66,10 +77,100 @@ class Star:
 #----------StarObject----------#
 
 #----------Functions----------#
-def Blackbody(WaveLength,T): #
+
+def ReadFile(FileName,Dtype='float'): #Reads a file containing Flux(lambda)
+    TotalName = prefix+FileName
+
+    WaveLength, Flux = np.loadtxt(TotalName, delimiter=",",unpack=True,dtype=Dtype)
+    return WaveLength, Flux
+
+
+def EnlistStars(FileNames,StarTypes): #Creates a list if star objects for all stars in files
+    
+    StarList = np.empty(len(FileNames),dtype=Star)
+    for i in range(len(FileNames)):
+        LumType = StarTypes[i][3] #Luminosity class
+        SpectralNumber = StarTypes[i][2] #ex. the 5 in A5
+        SpectralType = StarTypes[i][1] #ex. the A in A5
+        StarName = FileNames[i].strip(".dat.fix") #remove filetype
+        StarList[i] = Star(FileNames[i],StarName,SpectralType,SpectralNumber,LumType)
+        
+    return StarList
+
+
+#Plots the flux(wavelength) of a star (NOT DONE) 
+def PlotFlux(WaveLength,Flux,Xmin=0,Xmax=None,Title="",Xlabel=r"Wavelength($\AA$)",Ylabel=r"Flux($erg/cm^2/s/Hz$)"): 
+
+    plt.figure()    
+    
+    if(Xmax==None): #If no Xmax is given, Use maximum of wavelength
+        Xmax = np.amax(WaveLength)
+
+    plt.plot(WaveLength,Flux)
+
+    plt.title(Title)
+    plt.xlabel(r"Wavelength($\AA$)")
+    plt.ylabel(r"Flux($erg/cm^2/s/\AA$)")
+
+
+    plt.xlim(xmin=Xmin,xmax=Xmax)
+    plt.ylim(ymin=0)
+
+def Integrate(x,y,f,Xmin=None,Xmax=None):  #calculates he integral of f(x)dx from Xmin to Xmax with trapezoids
+
+    if(not(Xmin == None and Xmax == None)):
+        Interval = (x>Xmin)*(x<Xmax)
+        x = x[Interval]
+        y = y[Interval]
+
+    Result = 0
+    for i in range(len(x)-1):
+        Result += 0.5*(x[i+1]-x[i])*(y[i]+y[i+1])*f((x[i]+x[i+1])/2) #surface ofa trapezoid times f(x)
+
+    return Result
+
+
+#Wavelength in armstrong, Flux in erg/s/cm^/Hz
+def ConvertToWaveLength(WaveLength,Flux): #Converts unit of Flux erg/s/cm^2/HZ -> erg/s/cm^2/armstrong
+    
+    DeltaLambda = (WaveLength/1E10)**2 / c #m
+    OneArmstrong = 1E-10 #m
+    return Flux * (OneArmstrong / DeltaLambda) #Now Flux is in erg/s/cm^2/armstrong
+
+
+def f1(WaveLength): #Required to put into the inegratge function
+    return WaveLength;
+    
+
+def CalculateC(WaveVega,FluxVega,LambdaFilter,DeltaFilter): #Calculates the c constant for a filter
+    
+    FilterMin = LambdaFilter - DeltaFilter
+    FilterMax = LambdaFilter + DeltaFilter
+    Numerator = Integrate(WaveVega,FluxVega,f1,FilterMin,FilterMax)
+    Denominator = 2*LambdaFilter*DeltaFilter #We calculated this analytically
+    C = 2.5*np.log10(Numerator/Denominator)
+    return C
+
+def Blackbody(WaveLengthOld,T): #
+    WaveLength = WaveLengthOld.copy()
     WaveLength *= 1E-10 #From armstrong to m
-    return ((2*h*c**2)/(WaveLength**5))/np.expm1((h*c)/(WaveLength*Kb*T))
+
+    return ((2*h*c**2)/(WaveLength**5)/np.expm1((h*c)/(WaveLength*Kb*T)))
     #Returns flux in w/m^2
+
+
+def CalcBBColor(Tlist): #Calculates U-B and B-V for blackbody with temperature T
+    WL = np.linspace(2999,6768,1000) #armstrong
+    U_B = []
+    B_V = []
+    
+    for T in Tlist:
+        flux = Blackbody(WL,T)
+        BBstar = Star(WaveLength = WL,Flux=flux)
+        U_B.append(BBstar.U_B)
+        B_V.append(BBstar.B_V)
+    
+    return U_B,B_V
 
 def PlotHertzsprung(LumType):
 
@@ -93,7 +194,13 @@ def PlotHertzsprung(LumType):
         Color = SpecDict[Spec].Color
         plt.scatter(U_B,B_V,color=Color,s=5,label=Spec+" Type")
 
-        
+
+    #Plot blackbody colors
+    Tlist = np.linspace(2000,30000,10)
+    bbU_B, bbB_V = CalcBBColor(Tlist)
+    plt.plot(bbU_B,bbB_V,color="white")
+    
+    #Needed for Title 
     if(LumType == "I"):
         startype = "Giants"
     else:
@@ -102,7 +209,7 @@ def PlotHertzsprung(LumType):
     plt.title("Hertzsprung-Russel diagram for several "+startype)
     plt.xlabel("U-B")
     plt.ylabel("B-V")
-        
+    
     plt.ylim(ymin=1.1*np.amax(B_VTotal),ymax=1.1*np.amin(B_VTotal))
     
     plt.legend()    
@@ -110,92 +217,6 @@ def PlotHertzsprung(LumType):
         
 
 
-def EnlistStars(FileNames,StarTypes): #Creates a list if star objects for all stars in files
-    
-    StarList = np.empty(len(FileNames),dtype=Star)
-    for i in range(len(FileNames)):
-        LumType = StarTypes[i][3] #Luminosity class
-        SpectralNumber = StarTypes[i][2] #ex. the 5 in A5
-        SpectralType = StarTypes[i][1] #ex. the A in A5
-        StarName = FileNames[i].strip(".dat.fix") #remove filetype
-        StarList[i] = Star(FileNames[i],StarName,SpectralType,SpectralNumber,LumType)
-        
-    return StarList
-    
-
-
-def FindLumClass(TypeList): #Finds the type from the typeList of steller classification
-    LumList = np.empty(len(TypeList),dtype="str")
-    for i in range(len(TypeList)):
-        LumList[i] = TypeList[i][3]
-    return LumList
-
-#Wavelength in armstrong, Flux in erg/s/cm^/Hz
-def ConvertToWaveLength(WaveLength,Flux): #Converts unit of Flux erg/s/cm^2/HZ -> erg/s/cm^2/armstrong
-    
-    DeltaLambda = (WaveLength/1E10)**2 / c #m
-    OneArmstrong = 1E-10 #m
-    return Flux * (OneArmstrong / DeltaLambda) #Now Flux is in erg/s/cm^2/armstrong
-
-
-def Integrate(x,y,f,Xmin=None,Xmax=None):  #calculates he integral of f(x)dx from Xmin to Xmax with trapezoids
-
-    if(not(Xmin == None and Xmax == None)):
-        Interval = (x>Xmin)*(x<Xmax)
-        x = x[Interval]
-        y = y[Interval]
-
-    Result = 0
-    for i in range(len(x)-1):
-        Result += 0.5*(x[i+1]-x[i])*(y[i]+y[i+1])*f((x[i]+x[i+1])/2) #surface ofa trapezoid times f(x)
-
-    return Result
-
-
-def ReadFile(FileName,Dtype='float'): #Reads a file containing Flux(lambda)
-    TotalName = prefix+FileName
-
-    WaveLength, Flux = np.loadtxt(TotalName, delimiter=",",unpack=True,dtype=Dtype)
-    return WaveLength, Flux
-    
-
-#Plots the flux(wavelength) of a star (NOT DONE) 
-def PlotFlux(WaveLength,Flux,Xmin=0,Xmax=None,Title="",Xlabel=r"Wavelength($\AA$)",Ylabel=r"Flux($erg/cm^2/s/Hz$)"): 
-
-    plt.figure()    
-    
-    if(Xmax==None): #If no Xmax is given, Use maximum of wavelength
-        Xmax = np.amax(WaveLength)
-
-    plt.plot(WaveLength,Flux)
-
-    plt.title(Title)
-    plt.xlabel(r"Wavelength($\AA$)")
-    plt.ylabel(r"Flux($erg/cm^2/s/\AA$)")
-
-
-    plt.xlim(xmin=Xmin,xmax=Xmax)
-    plt.ylim(ymin=0)
-
-
-def f1(WaveLength): #Required to put into the inegratge function
-    return WaveLength;
-    
-
-def CalculateC(WaveVega,FluxVega,LambdaFilter,DeltaFilter): #Calculates the c constant for a filter
-    
-    FilterMin = LambdaFilter - DeltaFilter
-    FilterMax = LambdaFilter + DeltaFilter
-    Numerator = Integrate(WaveVega,FluxVega,f1,FilterMin,FilterMax)
-    Denominator = 2*LambdaFilter*DeltaFilter #We calculated this analytically
-    C = 2.5*np.log10(Numerator/Denominator)
-    return C
-
-
-def Blackbody(WaveLength,T): #
-    WaveLength *= 1E-10 #From armstrong to m
-    return ((2*h*c**2)/(WaveLength**5))/np.expm1((h*c)/(WaveLength*Kb*T))
-    #Returns flux in w/m^2
     
 #----------Functions----------#
 
@@ -203,8 +224,12 @@ def Blackbody(WaveLength,T): #
 #----------GlobalVariables----------#
 
 prefix = "C:/Users/Jasper/Desktop/Uni/ALOP/Data/"
+
+#---constants---#
 c = 299792458 #m/s
 h = 6.626E-34 #Js
+Kb = 1.38064852E-23 #m^2kg/s^2/k
+#---constants---#
 
 #---Filters---#
 LambdaU = 3659 #armstrong
