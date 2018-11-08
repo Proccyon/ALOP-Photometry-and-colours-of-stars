@@ -27,11 +27,12 @@ class Star:
     
         self.StarName = StarName
         self.SpectralType = SpectralType
+        self.SpectralNumber = SpectralNumber
         self.LumType = LumType
         
         if(len(WaveLength) != 0 and len(Flux) != 0):
-            self.WaveLength = WaveLength
-            self.Flux = Flux
+            self.WaveLength = WaveLength #armstrong
+            self.Flux = Flux #erg/cm^2/s/armstrong
         else:
             if(FileName != None):
                 self.WaveLength, self.Flux = ReadFile(FileName) 
@@ -155,8 +156,8 @@ def Blackbody(WaveLengthOld,T): #
     WaveLength = WaveLengthOld.copy()
     WaveLength *= 1E-10 #From armstrong to m
 
-    return ((2*h*c**2)/(WaveLength**5)/np.expm1((h*c)/(WaveLength*Kb*T)))
-    #Returns flux in w/m^2
+    return 1E-7 * (((2*h*c**2)/(WaveLength**5))/np.expm1((h*c)/(WaveLength*Kb*T)))
+    #Returns flux in erg/cm^2/s/armstrong
 
 
 def CalcBBColor(Tlist): #Calculates U-B and B-V for blackbody with temperature T
@@ -165,26 +166,79 @@ def CalcBBColor(Tlist): #Calculates U-B and B-V for blackbody with temperature T
     B_V = []
     
     for T in Tlist:
-        flux = Blackbody(WL,T)
+        flux = Blackbody(WL,T) #erg/cm^2/s/armstrong
         BBstar = Star(WaveLength = WL,Flux=flux)
         U_B.append(BBstar.U_B)
         B_V.append(BBstar.B_V)
     
     return U_B,B_V
 
-def PlotHertzsprung(LumType):
+def T_From_BV(Tlist,BVlist,BV0list): #Calculates Temperature of blackbody with certain B-V color
+    TOutputList = []
+    
+    for BV0 in BV0list:
+        i = np.argmin(np.abs(BVlist-BV0)) #Calculates index where BV is closest to B0
+        TOutputList.append(Tlist[i])
+    return TOutputList
+
+
+
+def PlotDividedFlux():
+
+    plt.style.use('default')
+
+    Tlist = np.linspace(2000,30000,10)
+    bbU_B, bbB_V = CalcBBColor(Tlist) #List of colors for blackbody's with different T
+
+
+    BV0List = [] #B-V colours for A0, B0, F0 and G0 stars
+    IndexList = [0,18,33,50] #List of indexes of A0,B0,F0,G0 stars
+    for i in IndexList:
+        BV0List.append(StarList[i].B_V)
+    
+    #Temperatures of blackbody's with B-V's in BV0List
+    T0List = T_From_BV(Tlist,bbB_V,BV0List)
+    
+    for i in range(len(T0List)): #Plots star flux divided by bb flux 
+            plt.figure()
+            
+            star = StarList[IndexList[i]]
+            T0 = T0List[i]
+            
+            bbFlux = Blackbody(star.WaveLength,T0) #Calculates flux of bb
+            DivisedFlux = star.Flux / bbFlux
+            
+            #plt.plot(star.WaveLength,DivisedFlux)
+            plt.plot(star.WaveLength,bbFlux)
+            plt.plot(star.WaveLength,star.Flux)
+            
+            props = dict(boxstyle='round', facecolor='lightgrey', alpha=1) #
+            text = "Tbb = " +str(np.round(T0,0)) #String with used constants
+            plt.text(0.7*np.amax(star.WaveLength),0.95*np.amax(DivisedFlux),text,fontsize=11,bbox=props)
+                  
+            plt.title("Flux of " +str(star.SpectralType)+ "0 star divided by flux of blackbody with same B-V")
+            plt.xlabel(r"WaveLength($\AA$)")
+            plt.ylabel(r"$F_{star}$ / $F_{bb}$") 
+            
+            plt.xlim(xmin=np.amin(star.WaveLength),xmax=np.amax(star.WaveLength))
+
+
+
+def PlotHertzsprung(LumType): #Plots Hertzsprung russel diagram of stars in StarList
 
     plt.figure()
     plt.style.use('dark_background')
 
     U_BTotal = []
     B_VTotal = []
+    
 
     for Spec in SpecDict:
         U_B = []
         B_V = []
         
         for Star in StarList:
+            
             if(Star.SpectralType == Spec and Star.LumType == LumType):
                 U_B.append(Star.U_B)
                 B_V.append(Star.B_V)
@@ -197,8 +251,8 @@ def PlotHertzsprung(LumType):
 
     #Plot blackbody colors
     Tlist = np.linspace(2000,30000,10)
-    bbU_B, bbB_V = CalcBBColor(Tlist)
-    plt.plot(bbU_B,bbB_V,color="white")
+    bbU_B, bbB_V = CalcBBColor(Tlist) #List of colors for blackbody's with different T
+    plt.plot(bbU_B,bbB_V,color="white") #Plots the colors for the blackbody's
     
     #Needed for Title 
     if(LumType == "I"):
@@ -294,7 +348,7 @@ SpecDict = {
 
 #----------Main----------#
 
-if(False): #Plot Flux(Wavelength) of measured star
+if(True): #Plot Flux(Wavelength) of measured star
     WaveLength, Flux = ReadFile("Bb11.dat.fix") #,3000,9000,"Flux of STARNAME as a function of wavelength"
     PlotFlux(WaveLength,Flux,3000,9000,"Flux of STARNAME as a function of wavelength")
 
@@ -308,10 +362,16 @@ if(True):
 if(True):
     PlotHertzsprung("V")
     PlotHertzsprung("I")
+    PlotDividedFlux()
 
 #----------Main----------#
 
 #----------End----------#
+
+#for i in range(len(StarList)):
+#    print(str(i)+": ")
+#    print(str(StarList[i].SpectralType)+str(StarList[i].SpectralNumber)+"\n")
+
 
 plt.show()
 
