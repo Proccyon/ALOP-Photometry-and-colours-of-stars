@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from astropy.io import fits
 import csv
-
+import sp
 
 #----------SpectralClassObject----------#
 
@@ -44,14 +45,22 @@ class Star:
         
     def PlotFlux(self,Xmin=0,Xmax=None,Xlabel=r"Wavelength($\AA$)",Ylabel=r"Flux($erg/cm^2/s/Hz$)"): 
 
-        plt.figure()    
-    
+        plt.style.use("seaborn-darkgrid")
+        plt.figure(figsize=[8,4.5])
+        
         if(Xmax==None): #If no Xmax is given, Use maximum of wavelength
             Xmax = np.amax(WaveLength)
 
         plt.plot(self.WaveLength,self.Flux)
 
-        plt.title("Flux of star"+self.StarName+"as a function of Wavelength")
+        if(self.LumType == "I"):
+            name = "giant"
+        else:
+            name = "main sequence star"
+            
+        plt.title("Flux of a {}{} {} as a function of Wavelength".format(
+        self.SpectralType,self.SpectralNumber,name))
+        
         plt.xlabel(r"Wavelength($\AA$)")
         plt.ylabel(r"Flux($erg/cm^2/s/\AA$)")
 
@@ -101,6 +110,7 @@ def EnlistStars(FileNames,StarTypes): #Creates a list if star objects for all st
 
 #Plots the flux(wavelength) of a star (NOT DONE) 
 def PlotFlux(WaveLength,Flux,Xmin=0,Xmax=None,Title="",Xlabel=r"Wavelength($\AA$)",Ylabel=r"Flux($erg/cm^2/s/Hz$)"): 
+
 
     plt.figure()    
     
@@ -181,13 +191,12 @@ def T_From_BV(Tlist,BVlist,BV0list): #Calculates Temperature of blackbody with c
         TOutputList.append(Tlist[i])
     return TOutputList
 
-
-
 def PlotDividedFlux():
 
-    plt.style.use('default')
+    plt.style.use('seaborn')
 
-    Tlist = np.linspace(2000,30000,10)
+
+    Tlist = np.linspace(2000,30000,500)
     bbU_B, bbB_V = CalcBBColor(Tlist) #List of colors for blackbody's with different T
 
 
@@ -200,7 +209,15 @@ def PlotDividedFlux():
     T0List = T_From_BV(Tlist,bbB_V,BV0List)
     
     for i in range(len(T0List)): #Plots star flux divided by bb flux 
-            plt.figure()
+            plt.figure(figsize=(8,5))
+            
+            
+            ColorList = ["green","blue","orange"]
+            FilterNameList = ["U","B","V"]
+            for k in range(len(LambdaList)): #Plots vertical Filter lines
+                plt.axvline(x=LambdaList[k]-DeltaList[k],linestyle="--",color=ColorList[k],label=FilterNameList[k])
+                plt.axvline(x=LambdaList[k]+DeltaList[k],linestyle="--",color=ColorList[k])
+
             
             star = StarList[IndexList[i]]
             T0 = T0List[i]
@@ -208,9 +225,9 @@ def PlotDividedFlux():
             bbFlux = Blackbody(star.WaveLength,T0) #Calculates flux of bb
             DivisedFlux = star.Flux / bbFlux
             
-            #plt.plot(star.WaveLength,DivisedFlux)
-            plt.plot(star.WaveLength,bbFlux)
-            plt.plot(star.WaveLength,star.Flux)
+            plt.plot(star.WaveLength,DivisedFlux)
+            #plt.plot(star.WaveLength,bbFlux/np.amax(bbFlux))
+            #plt.plot(star.WaveLength,star.Flux/np.amax(star.Flux))
             
             props = dict(boxstyle='round', facecolor='lightgrey', alpha=1) #
             text = "Tbb = " +str(np.round(T0,0)) #String with used constants
@@ -220,14 +237,37 @@ def PlotDividedFlux():
             plt.xlabel(r"WaveLength($\AA$)")
             plt.ylabel(r"$F_{star}$ / $F_{bb}$") 
             
-            plt.xlim(xmin=np.amin(star.WaveLength),xmax=np.amax(star.WaveLength))
+            plt.xlim(xmin=2000,xmax=7000)
 
+            plt.legend()
+
+def SelectTemp(T,Tmin,Tmax): #Selects all temperatures with a range
+    Tnew = T.copy()
+    return Tnew[(Tnew>Tmin) * (Tnew<Tmax)]
+    
+def DoubleSort(List1,List2):
+    
+    Copy1 = List1.copy()
+    Copy2 = List2.copy()
+    
+    NewList1 = []
+    NewList2 = []
+    
+    for i  in range(len(List1)-1):
+        index = np.argmin(Copy1)
+        NewList1.append(Copy1[index])
+        NewList2.append(Copy2[index])
+        del Copy1[index]
+        del Copy2[index]
+        
+    return NewList1, NewList2
 
 
 def PlotHertzsprung(LumType): #Plots Hertzsprung russel diagram of stars in StarList
 
-    plt.figure()
     plt.style.use('dark_background')
+    plt.figure()
+    
 
     U_BTotal = []
     B_VTotal = []
@@ -250,9 +290,23 @@ def PlotHertzsprung(LumType): #Plots Hertzsprung russel diagram of stars in Star
 
 
     #Plot blackbody colors
-    Tlist = np.linspace(2000,30000,10)
-    bbU_B, bbB_V = CalcBBColor(Tlist) #List of colors for blackbody's with different T
-    plt.plot(bbU_B,bbB_V,color="white") #Plots the colors for the blackbody's
+    Tlist = np.linspace(2000,30000,2000)
+    
+    for Spec in SpecDict:
+        SelT = SelectTemp(Tlist,SpecDict[Spec].Tmin,SpecDict[Spec].Tmax)
+        bbU_B, bbB_V = CalcBBColor(SelT)
+        plt.plot(bbU_B, bbB_V,color=SpecDict[Spec].Color)
+        
+    plt.plot(0,-100,label="Black body")    
+    
+    #--Indicator--#
+    U_BTotal,B_VTotal = DoubleSort(U_BTotal,B_VTotal)
+    FitData = np.polyfit(U_BTotal,B_VTotal,6)
+    PolyFit = np.poly1d(FitData)
+    Xnew = np.linspace(-0.8,1.6,2000)
+    
+    plt.plot(Xnew,PolyFit(Xnew),linewidth=18,alpha=0.2,color="white")
+    #--Indicator--#
     
     #Needed for Title 
     if(LumType == "I"):
@@ -269,9 +323,38 @@ def PlotHertzsprung(LumType): #Plots Hertzsprung russel diagram of stars in Star
     plt.legend()    
     plt.show()
         
-
-
+        
+def GetStarData(FileName,ExTime,M0,Gain,Radius): #Gets the data from stars in an image
+        
+    #ExTime = Exposure time
+    #M0 = Magnitude zeropoint
+    #Gain = photons per ADU
+    #Radius = assumed radius of stars in pixels
     
+    hdul = fits.open(prefix+FileName) 
+    Image = hdul[0].data #Flux for each pixel
+
+    FoundStars = sp.find(Image,1000,5) #Data from the stars in the V image       
+    XList = FoundStars[0] #List of x positions for all stars
+    YList = FoundStars[1] #List of y positions for all stars
+    
+    #Gets the flux in ADU for all stars    
+    ADU,ADUerr,Sky,SkyErr = sp.aper(Image,XList,YList,Gain,[Radius],[15,25],exact=True,flux=True)
+    Flux = ADU / ExTime #ADU / s
+    M = M0 -2.5 * np.log10(Flux) #Magnitude
+        
+    return Image,XList,YList,ADU,ADUerr,M,Sky,SkyErr
+
+
+def SNRatio(Nsource,Nsky,g,RON,R): #Calculates signal to noise ratio
+    k = np.pi * R**2 #Amount of pixels
+    Numerator = g*Nsource
+    Denominator = np.sqrt(g*Nsource+k*(g*Nsky+RON**2))
+    return Numerator / Denominator
+    
+def Merror(SN):
+    return (2.5/np.log(10))/SN
+
 #----------Functions----------#
 
 
@@ -282,10 +365,11 @@ prefix = "C:/Users/Jasper/Desktop/Uni/ALOP/Data/"
 #---constants---#
 c = 299792458 #m/s
 h = 6.626E-34 #Js
-Kb = 1.38064852E-23 #m^2kg/s^2/k
+Kb = 1.38064852E-23 #J/k
 #---constants---#
 
 #---Filters---#
+#Ranges of different filters
 LambdaU = 3659 #armstrong
 DeltaU = 660
 
@@ -294,6 +378,9 @@ DeltaB = 940
 
 LambdaV = 5448
 DeltaV = 880
+
+LambdaList = [LambdaU,LambdaB,LambdaV]
+DeltaList = [DeltaU,DeltaB,DeltaV]
 #---Filters---#
 
 #---Vega---#
@@ -307,8 +394,7 @@ CU = CalculateC(WaveVega,FluxVega,LambdaU,DeltaU)
 CB = CalculateC(WaveVega,FluxVega,LambdaB,DeltaB)
 CV = CalculateC(WaveVega,FluxVega,LambdaV,DeltaV)
 
-print(CU,CV,CB)
-
+#print(CU,CB,CV)
 #---Cconstants---#
 
 #---StarList---#
@@ -317,7 +403,6 @@ StarList = EnlistStars(FileNames,StarTypes)
 #---StarList---#
 
 #---SpectralClasses---#
-
 
 SpecO = SpectralClass("O",30000,1E10,125,151,255)
 SpecB = SpectralClass("B",10000,30000,170,191,255)
@@ -340,30 +425,78 @@ SpecDict = {
 
 #---SpectralClasses---#
 
+#---Images---#
+
+R = 5
+RON = 250
+Gain = 5
+
+Vimage,Xstar,Ystar,V_ADU,V_ADUerr,MV,VSky,VSkyErr = GetStarData("exposure_V.fits",10,17.40,Gain,R)
+Bimage,Xstar,Ystar,B_ADU,B_ADUerr,MB,BSky,BSkyErr = GetStarData("exposure_B.fits",30,16.43,Gain,R)
+
+VSNratio = SNRatio(np.transpose(V_ADU),VSky,Gain,RON,R)
+BSNratio = SNRatio(np.transpose(B_ADU),BSky,Gain,RON,R)
+MV_err = np.round(Merror(VSNratio),2)
+MB_err = np.round(Merror(BSNratio),2)
+
+DataTable = np.zeros((5,7))
+DataTable[:,0] = np.round(Xstar,0) #X
+DataTable[:,1] = np.round(Ystar,0) #Y
+DataTable[:,2] = np.round(np.transpose(V_ADU/10)) #V Flux
+DataTable[:,3] = np.round(np.transpose(B_ADU/30)) #B Flux
+DataTable[:,4] = np.round(VSNratio) #V SNratio
+DataTable[:,5] = np.round(BSNratio) #B SNratio
+DataTable[:,6] = np.round(np.transpose(MV),3) #V magnitude
+#print(np.round(np.transpose(MB),3)) #V magnitude
+#print(np.round(np.transpose(MB)-np.transpose(MV),5)) #V magnitude
+
+print("\n")
+#print(DataTable)
+print(MV_err)
+print(MB_err)
+#print(Ystar)
+#print(np.transpose(VSNratio))
+
+#print("\n SNRatio: "+str(VSNratio))
+
+#---Images---#
+
 #----------GlobalVariables----------#
-
-
-
 
 
 #----------Main----------#
 
-if(True): #Plot Flux(Wavelength) of measured star
+if(False): #Plot Flux(Wavelength) of measured star
     WaveLength, Flux = ReadFile("Bb11.dat.fix") #,3000,9000,"Flux of STARNAME as a function of wavelength"
     PlotFlux(WaveLength,Flux,3000,9000,"Flux of STARNAME as a function of wavelength")
 
+if(False):
+    StarList[3].PlotFlux(Xmin=3000,Xmax=9000)
+    StarList[50].PlotFlux(Xmin=3000,Xmax=9000)
+    StarList[35].PlotFlux(Xmin=3000,Xmax=9000)
 
-if(True): #Plot Flux(Wavelength) of Vega
-    PlotFlux(WaveVega,FluxVega,0,12000,"Flux of Vega as Function of wavelength",)
+
+if(False): #Plot Flux(Wavelength) of Vega
+    PlotFlux(WaveVega,FluxVega,0,12000,"Flux of Vega as Function of wavelength")
     
-if(True): 
+if(False): 
     Bb11 = Star("Bb11.dat.fix","Bb11")
 
 if(True):
     PlotHertzsprung("V")
-    PlotHertzsprung("I")
+    #PlotHertzsprung("I")
+if(False):
     PlotDividedFlux()
 
+if(False): #Plots V-band image of the CCD exposure
+    plt.figure()
+    
+    plt.title("Image of 5 stars in the visible band")
+    
+    plt.xlabel("x")
+    plt.ylabel("y")
+    
+    plt.imshow(np.log(Vimage), cmap='gray', interpolation='nearest')
 #----------Main----------#
 
 #----------End----------#
@@ -371,6 +504,10 @@ if(True):
 #for i in range(len(StarList)):
 #    print(str(i)+": ")
 #    print(str(StarList[i].SpectralType)+str(StarList[i].SpectralNumber)+"\n")
+
+
+
+
 
 
 plt.show()
